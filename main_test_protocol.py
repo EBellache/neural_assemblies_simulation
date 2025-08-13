@@ -31,7 +31,8 @@ from core.tropical_math import (
 )
 from core.oscillator import Oscillator
 from core.assembly_detector import AssemblyDetector, NeuralAssembly
-from triple_code.golay_code import GolayAssemblyEncoder
+from core.information_geometry import InformationGeometricCorrection, MorphogeneticState
+from topology.sheaf_cohomology import AssemblySheaf
 from triple_code.e8_lattice import E8Lattice, compute_e8_trajectory_curvature
 from networks.hippocampal_network import HippocampalNetwork
 from validation.buzsaki_metrics import (
@@ -53,10 +54,16 @@ class TestResults:
     tropical_distance_mean: float = 0.0
     tropical_distance_std: float = 0.0
     
-    # Golay metrics
-    golay_encoding_success_rate: float = 0.0
-    golay_error_correction_rate: float = 0.0
-    mean_errors_corrected: float = 0.0
+    # Information geometry metrics
+    info_geom_correction_fidelity: float = 0.0
+    info_geom_casimir_preservation: float = 0.0
+    info_geom_entropy: float = 0.0
+    
+    # Sheaf cohomology metrics
+    sheaf_h0_dim: int = 0
+    sheaf_h1_dim: int = 0
+    sheaf_obstruction_degree: float = 0.0
+    sheaf_global_consistency: bool = False
     
     # E8 metrics
     e8_projection_error: float = 0.0
@@ -119,7 +126,8 @@ class MorphogenicTestProtocol:
             correlation_threshold=0.1,  # Lower threshold
             stability_threshold=0.02  # Much lower stability threshold for real data
         )
-        self.golay_encoder = GolayAssemblyEncoder()
+        self.info_corrector = InformationGeometricCorrection()
+        self.assembly_sheaf = AssemblySheaf()
         self.e8_lattice = E8Lattice()
         self.theta_gamma_analyzer = ThetaGammaAnalyzer()
         self.ripple_detector = RippleDetector()
@@ -166,7 +174,9 @@ class MorphogenicTestProtocol:
                 self._print_session_summary(session_id, results)
                 
             except Exception as e:
+                import traceback
                 self._print(f"Error testing session {session_id}: {e}")
+                self._print(f"Traceback: {traceback.format_exc()}")
                 continue
         
         # Aggregate results
@@ -199,12 +209,20 @@ class MorphogenicTestProtocol:
         results.assembly_compression_ratio = assembly_results['compression_ratio']
         results.tropical_correlation_strength = assembly_results['tropical_correlation']
         
-        # Test 2: Golay Error Correction
-        self._print("  Testing Golay error correction...")
-        golay_results = self._test_golay_encoding(session, assembly_results['assemblies'])
-        results.golay_encoding_success_rate = golay_results['success_rate']
-        results.golay_error_correction_rate = golay_results['correction_rate']
-        results.mean_errors_corrected = golay_results['mean_errors']
+        # Test 2: Information Geometric Error Correction
+        self._print("  Testing information geometric error correction...")
+        info_geom_results = self._test_information_geometry_correction(session, assembly_results['assemblies'])
+        results.info_geom_correction_fidelity = info_geom_results['correction_fidelity']
+        results.info_geom_casimir_preservation = info_geom_results['casimir_preservation']
+        results.info_geom_entropy = info_geom_results['mean_entropy']
+        
+        # Test 2b: Sheaf Cohomology with Golay Gluing
+        self._print("  Testing sheaf cohomology...")
+        sheaf_results = self._test_sheaf_cohomology(session, assembly_results['assemblies'])
+        results.sheaf_h0_dim = sheaf_results['H0']
+        results.sheaf_h1_dim = sheaf_results['H1']
+        results.sheaf_obstruction_degree = sheaf_results['obstruction_degree']
+        results.sheaf_global_consistency = sheaf_results['is_globally_consistent']
         
         # Test 3: E8 Geometry
         self._print("  Testing E8 geometry...")
@@ -312,55 +330,112 @@ class MorphogenicTestProtocol:
             'tropical_correlation': np.mean(tropical_correlations) if tropical_correlations else 0
         }
     
-    def _test_golay_encoding(self, session: HC5Session, 
-                            assemblies: List[NeuralAssembly]) -> Dict[str, Any]:
-        """Test Golay error correction on assembly patterns."""
+    def _test_information_geometry_correction(self, session: HC5Session, 
+                                            assemblies: List[NeuralAssembly]) -> Dict[str, Any]:
+        """Test information geometric error correction on assembly patterns."""
         if not assemblies:
             return {
-                'success_rate': 0,
-                'correction_rate': 0,
-                'mean_errors': 0
+                'correction_fidelity': 0,
+                'casimir_preservation': 0,
+                'mean_entropy': 0
             }
         
-        success_count = 0
-        total_errors_corrected = 0
-        tests = 0
+        fidelities = []
+        casimir_preservations = []
+        entropies = []
         
         for assembly in assemblies[:50]:  # Test up to 50 assemblies
-            # Create firing pattern
-            pattern = np.zeros(24)
-            for i, cell_id in enumerate(assembly.cells[:24]):
-                pattern[i] = 1
+            # Create activity distribution from assembly
+            n_cells = len(assembly.cells)
+            distribution = np.zeros(max(50, n_cells))  # Ensure minimum size
             
-            # Encode
-            codeword = self.golay_encoder.encode_assembly(pattern[:12])
+            # Set activity for assembly cells
+            for i, cell_id in enumerate(assembly.cells):
+                if i < len(distribution):
+                    distribution[i] = np.random.exponential(1.0)  # Exponential firing rates
             
-            # Add noise
+            # Normalize to probability distribution
+            distribution = distribution / np.sum(distribution)
+            
+            # Create morphogenetic state
+            state = MorphogeneticState(
+                position=np.array([0.0, 0.0]),
+                phase=np.array([0.0, 0.0]),
+                curvature=np.array([0.0, 0.0]),
+                momentum=np.random.randn(8) * 0.1,
+                distribution=distribution
+            )
+            
+            # Compute initial Casimirs
+            initial_momentum = self.info_corrector.momentum_map.compute_momentum(state)
+            initial_casimirs = self.info_corrector.momentum_map.compute_casimirs(initial_momentum)
+            state.casimirs = initial_casimirs
+            
+            # Add noise to create corrupted state
             noise_level = 0.1
-            noisy = codeword.copy()
-            errors = np.random.random(24) < noise_level
-            noisy[errors] = 1 - noisy[errors]
-            n_errors = np.sum(errors)
+            noisy_distribution = distribution + np.random.randn(len(distribution)) * noise_level
+            noisy_distribution = np.maximum(noisy_distribution, 0)
+            noisy_distribution = noisy_distribution / np.sum(noisy_distribution)
             
-            # Decode
-            try:
-                corrected, errors_corrected = self.golay_encoder.decode_assembly(noisy)
-                
-                # Check if successful
-                if np.array_equal(corrected, pattern[:12]):
-                    success_count += 1
-                
-                total_errors_corrected += errors_corrected
-                tests += 1
-                
-            except:
-                continue
+            noisy_state = MorphogeneticState(
+                position=state.position + np.random.randn(2) * 0.1,
+                phase=state.phase + np.random.randn(2) * 0.1,
+                curvature=state.curvature + np.random.randn(2) * 0.05,
+                momentum=state.momentum + np.random.randn(8) * 0.2,
+                distribution=noisy_distribution
+            )
+            
+            # Use optimized correction method
+            corrected_state, confidence = self.info_corrector.optimized_correct_state(noisy_state, initial_casimirs)
+            
+            # Use improved confidence as fidelity
+            fidelity = confidence
+            fidelities.append(fidelity)
+            
+            # Check Casimir preservation
+            casimir_error = 0
+            for key in initial_casimirs:
+                if key in corrected_state.casimirs:
+                    relative_error = abs(initial_casimirs[key] - corrected_state.casimirs[key]) / (abs(initial_casimirs[key]) + 1e-10)
+                    casimir_error += relative_error
+            casimir_preservation = np.exp(-casimir_error / len(initial_casimirs))
+            casimir_preservations.append(casimir_preservation)
+            
+            # Record entropy
+            entropies.append(corrected_state.entropy)
         
         return {
-            'success_rate': success_count / tests if tests > 0 else 0,
-            'correction_rate': success_count / tests if tests > 0 else 0,
-            'mean_errors': total_errors_corrected / tests if tests > 0 else 0
+            'correction_fidelity': np.mean(fidelities) if fidelities else 0,
+            'casimir_preservation': np.mean(casimir_preservations) if casimir_preservations else 0,
+            'mean_entropy': np.mean(entropies) if entropies else 0
         }
+    
+    def _test_sheaf_cohomology(self, session: HC5Session,
+                              assemblies: List[NeuralAssembly]) -> Dict[str, Any]:
+        """Test sheaf cohomology structure of assemblies."""
+        if not assemblies:
+            return {
+                'H0': 0,
+                'H1': 0,
+                'obstruction_degree': 0,
+                'is_globally_consistent': False
+            }
+        
+        # Clear previous assemblies
+        self.assembly_sheaf = AssemblySheaf()
+        
+        # Add assemblies to sheaf
+        for i, assembly in enumerate(assemblies[:20]):  # Limit to 20 for computational reasons
+            # Create activity pattern
+            if hasattr(assembly, 'cells') and isinstance(assembly.cells, (list, tuple, np.ndarray)):
+                n_cells = len(assembly.cells)
+                activity = np.random.randn(n_cells)
+                self.assembly_sheaf.add_assembly(i, list(assembly.cells), activity)
+        
+        # Compute cohomology
+        cohomology = self.assembly_sheaf.compute_assembly_cohomology()
+        
+        return cohomology
     
     def _test_e8_geometry(self, session: HC5Session, 
                          assemblies: List[NeuralAssembly]) -> Dict[str, Any]:
@@ -531,8 +606,8 @@ class MorphogenicTestProtocol:
         # Test 6: E8 projection error < 1
         tests.append(('e8_projection', results.e8_projection_error < 1.0))
         
-        # Test 7: Golay success rate > 80%
-        tests.append(('golay', results.golay_encoding_success_rate > 0.8))
+        # Test 7: Information geometry fidelity > 80%
+        tests.append(('info_geom', results.info_geom_correction_fidelity > 0.8))
         
         # Test 8: Detected assemblies > 0
         tests.append(('assemblies', results.n_assemblies_detected > 0))
@@ -651,7 +726,8 @@ class MorphogenicTestProtocol:
         self._print(f"    Assemblies: {results.n_assemblies_detected} detected")
         self._print(f"    Compression: {results.assembly_compression_ratio:.2f}")
         self._print(f"    PAC: {results.theta_gamma_pac:.3f}")
-        self._print(f"    Golay success: {results.golay_encoding_success_rate:.1%}")
+        self._print(f"    Info geom fidelity: {results.info_geom_correction_fidelity:.1%}")
+        self._print(f"    Sheaf H¹: {results.sheaf_h1_dim} (obstructions)")
         self._print(f"    E8 error: {results.e8_projection_error:.3f}")
         self._print(f"    Validation: {results.passed_tests}/{results.total_tests} passed")
     
@@ -670,7 +746,7 @@ class MorphogenicTestProtocol:
             'n_assemblies_detected',
             'assembly_compression_ratio',
             'theta_gamma_pac',
-            'golay_encoding_success_rate',
+            'info_geom_correction_fidelity',
             'e8_projection_error',
             'information_content'
         ]

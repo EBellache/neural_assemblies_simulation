@@ -23,13 +23,13 @@ from itertools import combinations
 
 # Import Golay for gluing conditions
 try:
-    from ..triple_code.golay_code import GolayEncoder, GolayDecoder
+    from ..topology.geometric_gluing import TropicalE8Gluing, NeuralPatch
 except ImportError:
     import sys
     import os
 
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from triple_code.golay_code import GolayEncoder, GolayDecoder
+    from topology.geometric_gluing import TropicalE8Gluing, NeuralPatch
 
 
 @dataclass
@@ -176,7 +176,16 @@ class SheafStructure:
                 failed.append(gluing)
 
         # Check higher cocycle conditions (3-way overlaps)
-        triangles = list(nx.triangles(self.nerve))
+        # Get all triangles (3-node cycles) from the graph
+        triangles = []
+        for node in self.nerve.nodes():
+            for neighbor1 in self.nerve.neighbors(node):
+                for neighbor2 in self.nerve.neighbors(node):
+                    if neighbor1 < neighbor2 and self.nerve.has_edge(neighbor1, neighbor2):
+                        triangle = [node, neighbor1, neighbor2]
+                        if triangle not in triangles:
+                            triangles.append(triangle)
+        
         for triangle in triangles:
             # Check if 3-way overlap is consistent
             if not self._check_triple_overlap(triangle):
@@ -398,45 +407,73 @@ class SheafStructure:
 
 class AssemblySheaf:
     """
-    Sheaf of neuronal assemblies with Golay gluing.
-    Organizes assemblies into a coherent global structure.
+    Sheaf of neuronal assemblies with geometric tropical-E8 gluing.
+    Replaces binary Golay codes with continuous geometric operations.
     """
 
     def __init__(self):
-        self.sheaf = SheafStructure()
+        self.tropical_gluing = TropicalE8Gluing(temperature=0.5)
+        self.patches: List[NeuralPatch] = []
         self.assembly_to_patch: Dict[int, int] = {}
+        self.gluing_result = None
 
     def add_assembly(self, assembly_id: int, cells: List[int],
                      activity: np.ndarray) -> int:
         """
-        Add an assembly as a patch in the sheaf.
+        Add an assembly as a neural patch for geometric gluing.
         """
-        patch_id = self.sheaf.add_patch(set(cells), activity)
-        self.assembly_to_patch[assembly_id] = patch_id
-        return patch_id
+        # Create neural patch
+        patch = NeuralPatch(
+            patch_id=len(self.patches),
+            cells=set(cells),
+            activity=activity,
+            momentum=None  # Will be computed automatically
+        )
+        
+        self.patches.append(patch)
+        self.assembly_to_patch[assembly_id] = patch.patch_id
+        
+        return patch.patch_id
 
     def compute_assembly_cohomology(self) -> Dict[str, Any]:
         """
-        Compute cohomological invariants of assembly organization.
+        Compute cohomological invariants using geometric tropical-E8 gluing.
         """
-        # Check consistency
-        is_consistent, failed = self.sheaf.check_consistency()
-
-        # Compute cohomology
-        cohomology = self.sheaf.compute_cohomology()
-
-        # Add assembly-specific metrics
-        cohomology['n_assemblies'] = len(self.assembly_to_patch)
-        cohomology['is_globally_consistent'] = is_consistent
-        cohomology['n_failed_gluings'] = len(failed)
-
-        # Compute obstruction degree
-        if cohomology['H1'] > 0:
-            cohomology['obstruction_degree'] = cohomology['H1'] / max(1, len(self.sheaf.gluing_data))
-        else:
-            cohomology['obstruction_degree'] = 0.0
-
-        return cohomology
+        if not self.patches:
+            return {
+                'H0': 0,
+                'H1': 0,
+                'n_assemblies': 0,
+                'is_globally_consistent': False,
+                'obstruction_degree': 0.0,
+                'gluing_efficiency': 0.0
+            }
+        
+        # Find overlaps between patches
+        overlaps = {}
+        for i, patch_i in enumerate(self.patches):
+            for j, patch_j in enumerate(self.patches[i+1:], i+1):
+                overlap_cells = patch_i.cells & patch_j.cells
+                if len(overlap_cells) > 2:  # Minimum overlap
+                    overlaps[(i, j)] = overlap_cells
+        
+        # Perform geometric gluing
+        self.gluing_result = self.tropical_gluing.glue_patches(self.patches, overlaps)
+        
+        # Extract cohomology from geometric gluing result
+        cohom = self.gluing_result['cohomology']
+        cocycle = self.gluing_result['cocycle_consistency']
+        
+        return {
+            'H0': cohom['H0_dimension'],
+            'H1': cohom['H1_dimension'], 
+            'n_assemblies': len(self.patches),
+            'is_globally_consistent': cocycle['consistency'] > 0.8,
+            'obstruction_degree': 1.0 - cocycle['consistency'],
+            'gluing_efficiency': len(overlaps) / max(1, len(self.patches)**2),
+            'global_consistency': cohom['global_consistency'],
+            'spectral_gap': cohom['spectral_gap']
+        }
 
     def detect_topological_defects(self) -> List[Dict[str, Any]]:
         """

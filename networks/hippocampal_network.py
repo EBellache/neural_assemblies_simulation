@@ -28,7 +28,8 @@ try:
     )
     from ..core.oscillator import Oscillator, OscillatorState
     from ..core.assembly_detector import AssemblyDetector, NeuralAssembly
-    from ..triple_code.golay_code import GolayEncoder, GolayDecoder, GolayAssemblyEncoder
+    from ..core.information_geometry import InformationGeometricCorrection, MorphogeneticState
+    from ..topology.sheaf_cohomology import AssemblySheaf
     from ..triple_code.e8_lattice import E8Lattice, assembly_to_e8, tropical_update_e8
 except ImportError:
     # For standalone testing - adjust paths
@@ -42,7 +43,8 @@ except ImportError:
     )
     from core.oscillator import Oscillator, OscillatorState
     from core.assembly_detector import AssemblyDetector, NeuralAssembly
-    from triple_code.golay_code import GolayEncoder, GolayDecoder, GolayAssemblyEncoder
+    from core.information_geometry import InformationGeometricCorrection, MorphogeneticState
+    from topology.sheaf_cohomology import AssemblySheaf
     from triple_code.e8_lattice import E8Lattice, assembly_to_e8, tropical_update_e8
 
 @dataclass
@@ -136,7 +138,8 @@ class HippocampalNetwork:
         # Initialize modules
         self.oscillator = Oscillator(theta_freq=8.0, gamma_per_theta=5)
         self.assembly_detector = AssemblyDetector(bin_size_ms=25, min_cells=5)
-        self.golay_encoder = GolayAssemblyEncoder()
+        self.info_corrector = InformationGeometricCorrection()
+        self.assembly_sheaf = AssemblySheaf()
         self.e8_lattice = E8Lattice()
         
         # Network state
@@ -418,7 +421,21 @@ class HippocampalNetwork:
                     pattern[i] = len(recent_spikes) > 0
             
             # Golay encoding
-            assembly.golay_codeword = self.golay_encoder.encode_assembly(pattern[:12])
+            # Use information geometry instead of Golay for error correction
+            # Create morphogenetic state for the assembly
+            distribution = np.zeros(max(50, len(assembly.cells)))
+            for i, cell_id in enumerate(assembly.cells):
+                if i < len(distribution):
+                    distribution[i] = 1.0
+            distribution = distribution / np.sum(distribution)
+            
+            assembly.morphogenetic_state = MorphogeneticState(
+                position=np.array([0.0, 0.0]),
+                phase=np.array([self.theta_phase, self.gamma_phase]),
+                curvature=np.array([0.0, 0.0]),
+                momentum=np.random.randn(8) * 0.1,
+                distribution=distribution
+            )
             
             # Map to E8
             assembly.e8_coords = assembly_to_e8(pattern, self.e8_lattice)
@@ -449,7 +466,17 @@ class HippocampalNetwork:
                 
                 # Decode and correct
                 try:
-                    corrected, n_errors = self.golay_encoder.decode_assembly(noisy)
+                    # Use information geometry correction
+                    noisy_state = MorphogeneticState(
+                        position=np.array([0.0, 0.0]),
+                        phase=np.array([0.0, 0.0]),
+                        curvature=np.array([0.0, 0.0]),
+                        momentum=np.random.randn(8) * 0.1,
+                        distribution=noisy
+                    )
+                    corrected_state = self.info_corrector.correct_state(noisy_state)
+                    corrected = (corrected_state.distribution > 0.5).astype(np.uint8)[:24]
+                    n_errors = np.sum(np.abs(corrected - pattern[:24]))
                     
                     # Update assembly if errors were corrected
                     if n_errors > 0:
