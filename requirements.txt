@@ -1,0 +1,38 @@
+# Core
+numpy
+scipy
+pandas
+
+# JAX for GPU
+jax[cuda11_pip]
+jaxlib
+
+# Parallel computing
+dask[complete]
+distributed
+ray
+joblib
+numba
+
+# Visualization
+matplotlib
+seaborn
+plotly
+bokeh
+
+# Data handling
+h5py
+zarr
+pyarrow
+tables
+
+# Neuroscience specific
+neo
+elephant
+pynapple
+
+# Utilities
+tqdm
+pyyaml
+click
+rich
