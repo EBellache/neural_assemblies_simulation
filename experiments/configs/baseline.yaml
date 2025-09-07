@@ -1,0 +1,66 @@
+# Baseline configuration for tropical SDR segmentation
+
+# Network configuration
+network:
+  base_assemblies: 7
+  min_assemblies: 5
+  max_assemblies: 9
+  sdr_size: 2048
+  sdr_sparsity: 0.02
+  max_patterns_per_assembly: 200
+  amoeba_thickness: 2.0
+
+# Segmentation configuration
+segmentation:
+  n_assemblies: 7
+  min_assemblies: 5
+  max_assemblies: 9
+  patch_stride: 1
+  batch_size: 32
+  min_confidence: 5.0
+  online_learning: true
+  learning_rate: 0.01
+  use_multiscale: true
+  scale_weights: [0.6, 1.0, 0.8]
+
+# Training configuration
+training:
+  n_epochs: 10
+  images_per_epoch: 100
+  validation_split: 0.2
+  save_frequency: 5  # Save every N epochs
+  checkpoint_dir: "checkpoints/baseline"
+  log_dir: "logs/baseline"
+
+# Learning configuration
+learning:
+  eta_positive: 0.01
+  eta_negative: 0.005
+  homeostasis_rate: 0.001
+  min_pattern_weight: 0.001
+  differentiation_threshold: 5
+  reinforcement_decay: 0.99
+
+# Data configuration
+data:
+  dataset: "synthetic"  # Options: synthetic, medical, custom
+  image_size: [256, 256]
+  n_classes: 7
+  augmentation:
+    rotate: true
+    flip: true
+    noise_level: 0.1
+    contrast_range: [0.8, 1.2]
+
+# Evaluation configuration
+evaluation:
+  metrics: ["iou", "dice", "pixel_accuracy", "boundary_f1"]
+  save_predictions: true
+  visualization: true
+  
+# Experiment settings
+experiment:
+  seed: 42
+  device: "cpu"  # Options: cpu, gpu, tpu
+  precision: "float32"  # Options: float32, float16
+  verbose: true

@@ -1,0 +1,16 @@
+[project]
+name = "tropical-sdr"
+version = "0.1.0"
+dependencies = [
+    "jax[cpu]>=0.4.0",
+    "jaxlib>=0.4.0", 
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "matplotlib>=3.6.0",
+    "pillow>=10.0.0",
+    "pyyaml>=6.0"
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "black", "ruff", "mypy"]
+gpu = ["jax[cuda12_pip]"]

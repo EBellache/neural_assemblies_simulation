@@ -1,0 +1,42 @@
+# Configuration for ablation studies
+
+# Ablation parameters
+ablation:
+  study_type: "assembly_count"  # Options: assembly_count, sparsity, metabolic, padic
+  
+  # Assembly count ablation
+  assembly_counts: [3, 5, 7, 9, 11]
+  
+  # Sparsity ablation
+  sparsity_levels: [0.01, 0.02, 0.05, 0.10]
+  
+  # Metabolic ablation
+  metabolic_states: [0.2, 0.5, 0.8, 1.0]
+  
+  # P-adic timing ablation
+  disable_padic: [false, true]
+  padic_scales: [[8], [27], [125], [8, 27], [8, 27, 125]]
+
+# Base configuration (modified by ablation)
+network:
+  base_assemblies: 7
+  min_assemblies: 5
+  max_assemblies: 9
+  sdr_size: 2048
+  sdr_sparsity: 0.02
+  max_patterns_per_assembly: 200
+  amoeba_thickness: 2.0
+
+# Evaluation for each ablation
+evaluation:
+  n_trials: 5  # Repeat each configuration
+  metrics: ["iou", "dice", "pixel_accuracy", "inference_time", "memory_usage"]
+  statistical_tests: true
+  save_results: true
+  plot_results: true
+
+# Output configuration
+output:
+  results_dir: "results/ablations"
+  figures_dir: "figures/ablations"
+  summary_file: "ablation_summary.csv"
